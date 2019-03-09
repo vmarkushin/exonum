@@ -1,0 +1,31 @@
+{
+  "hash": "ee98db34db7e8bd08033be08c68148d9c0cee5768fcb61f1f72f7f9ed1c1e50e",
+  "config": {
+    "previous_cfg_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "actual_from": 0,
+    "validator_keys": [
+      {
+        "consensus_key": "d48c5ad2c3774a5394b35bbcbed3266e5abd31e01043c6d39c15f2fa9eea303a",
+        "service_key": "bdc934c5c2d3c7ce225368b736c0fbfa8f139f6305807c41ae5799f8d64700df"
+      }
+    ],
+    "consensus": {
+      "first_round_timeout": 3000,
+      "status_timeout": 5000,
+      "peers_timeout": 10000,
+      "txs_block_limit": 1000,
+      "max_message_len": 1048576,
+      "min_propose_timeout": 10,
+      "max_propose_timeout": 200,
+      "propose_timeout_threshold": 500
+    },
+    "services": {
+      "configuration": {
+        "majority_count": null
+      },
+      "cryptocurrency": null
+    }
+  },
+  "propose": null,
+  "votes": null
+}

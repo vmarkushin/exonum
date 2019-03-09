@@ -3,6 +3,7 @@ members = [
     "exonum",
     "examples/cryptocurrency",
     "examples/cryptocurrency-advanced/backend",
+    "examples/cryptocurrency-multisig/backend",
     "examples/timestamping/backend",
     "services/configuration",
     "services/time",
