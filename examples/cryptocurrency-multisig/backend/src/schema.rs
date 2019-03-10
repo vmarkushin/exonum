@@ -135,16 +135,21 @@ impl<'a> Schema<&'a mut Fork> {
     }
 
     /// Create new multisignature wallet and append first record to its history.
-    pub fn create_multisignature_wallet(&mut self, key: &PublicKey, name: &str, signatures_required: u32, pub_keys: &Vec<PublicKey>, transaction: &Hash) {
+    pub fn create_multisignature_wallet(&mut self,
+                                        wallet_key: &PublicKey,
+                                        name: &str,
+                                        signatures_required: u32,
+                                        pub_keys: &Vec<PublicKey>,
+                                        transaction: &Hash) {
         let wallet = {
-            let mut history = self.wallet_history_mut(key);
+            let mut history = self.wallet_history_mut(wallet_key);
             history.push(*transaction);
             let history_hash = history.merkle_root();
-            Wallet::new(key, name, INITIAL_BALANCE, history.len(), &history_hash)
+            Wallet::new(wallet_key, name, INITIAL_BALANCE, history.len(), &history_hash)
         };
-        self.wallets_mut().put(key, wallet);
+        self.wallets_mut().put(wallet_key, wallet);
 
         let multisig_data = MultiSigWalletInfo::new(pub_keys.clone(), signatures_required);
-        self.multisignature_wallets_data_mut().put(&key, multisig_data);
+        self.multisignature_wallets_data_mut().put(&wallet_key, multisig_data);
     }
 }

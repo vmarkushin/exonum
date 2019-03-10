@@ -18,5 +18,5 @@
 pub const ALICE_NAME: &str = "Alice";
 /// Bob's wallet name.
 pub const BOB_NAME: &str = "Bob";
-/// Multisignature #1 wallet name.
+/// Multisignature wallet name.
 pub const MULTISIGNATURE_WALLET_NAME: &str = "MS";

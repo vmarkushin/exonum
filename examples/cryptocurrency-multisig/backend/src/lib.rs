@@ -48,6 +48,8 @@ use exonum::{
     storage::Snapshot,
 };
 
+use exonum::crypto::{HashStream, PublicKey, PUBLIC_KEY_LENGTH};
+
 use transactions::WalletTransactions;
 
 /// Unique service ID.
@@ -98,9 +100,8 @@ impl fabric::ServiceFactory for ServiceFactory {
     }
 }
 
-use exonum::crypto::{HashStream, PublicKey, PUBLIC_KEY_LENGTH};
-
-/// Absorbs
+/// Create `PublicKey` for multisignature wallet from parties' `PublicKeys`s
+/// by hashing them. In general, the given list of `PublicKey`s should be sorted.
 pub fn create_multisig_wallet_pub_key(pub_keys: &Vec<PublicKey>) -> PublicKey {
     let hasher = pub_keys.iter()
         .fold(HashStream::new(), |hs, pk| hs.update(pk.as_ref()));
@@ -112,6 +113,8 @@ pub fn create_multisig_wallet_pub_key(pub_keys: &Vec<PublicKey>) -> PublicKey {
 
 #[test]
 fn test_create_multisig_address() {
+    use exonum::crypto::CryptoHash;
+
     let pub_keys = vec![
         PublicKey::new([3; PUBLIC_KEY_LENGTH]),
         PublicKey::new([7; PUBLIC_KEY_LENGTH]),
