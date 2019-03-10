@@ -28,6 +28,20 @@ message Transfer {
   uint64 seed = 3;
 }
 
+/// Transfer `amount` of the currency from one multisignature wallet wallet to another.
+/// Require at least `m` signatures of `n` parties of the given multisignature wallet
+/// in order to make transfer.
+message MultiSigTransfer {
+  // `PublicKey` of multisig wallet.
+  exonum.PublicKey from = 1;
+  // `Transfer` data.
+  Transfer transfer = 2;
+  // List of `PublicKey`s signed the transfer.
+  repeated exonum.PublicKey pub_keys = 3;
+  // List of `Signatures`s used for the transfer.
+  repeated bytes signatures = 4;
+}
+
 // Issue `amount` of the currency to the `wallet`.
 message Issue {
   // Issued amount of currency.

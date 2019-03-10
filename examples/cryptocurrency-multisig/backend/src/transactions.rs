@@ -20,7 +20,7 @@
 
 use exonum::{
     blockchain::{ExecutionError, ExecutionResult, Transaction, TransactionContext},
-    crypto::{PublicKey, SecretKey},
+    crypto::{PublicKey, SecretKey, Signature},
     messages::{Message, RawTransaction, Signed},
 };
 
@@ -57,6 +57,30 @@ pub enum Error {
     /// Can be emitted by `Transfer`.
     #[fail(display = "Insufficient currency amount")]
     InsufficientCurrencyAmount = 3,
+
+    /// Number of given parties' signatures and public keys mismatch.
+    ///
+    /// Can be emitted by `MultiSigTransfer`.
+    #[fail(display = "Number of given parties' signatures and public keys mismatch")]
+    NumberOfSignaturesAndPublicKeysMismatch = 4,
+
+    /// Invalid or duplicated parties' data.
+    ///
+    /// Can be emitted by `MultiSigTransfer`.
+    #[fail(display = "Invalid or duplicated parties' data")]
+    InvalidOrDuplicatedPartiesData = 5,
+
+    /// Number of given signatures is less than required.
+    ///
+    /// Can be emitted by `MultiSigTransfer`.
+    #[fail(display = "Number of given signatures is less than required")]
+    NotEnoughSignatures = 6,
+
+    /// Can't do simple transfer from multisig wallet. Use MultiSigTransfer instead.
+    ///
+    /// Can be emitted by `Transfer`.
+    #[fail(display = "Can't do simple transfer from multisig wallet. Use MultiSigTransfer instead")]
+    SimpleTransferFromMultiSigWallet = 7,
 }
 
 impl From<Error> for ExecutionError {
@@ -78,6 +102,22 @@ pub struct Transfer {
     ///
     /// [idempotence]: https://en.wikipedia.org/wiki/Idempotence
     pub seed: u64,
+}
+
+/// Transfer `amount` of the currency from one multisignature wallet wallet to another.
+/// Require at least `m` signatures of `n` parties of the given multisignature wallet
+/// in order to make transfer.
+#[derive(Clone, Debug, ProtobufConvert)]
+#[exonum(pb = "proto::MultiSigTransfer", serde_pb_convert)]
+pub struct MultiSigTransfer {
+    /// `PublicKey` of multisig wallet.
+    pub from: PublicKey,
+    /// `Transfer` data.
+    pub transfer: Transfer,
+    /// List of `PublicKey`s signed the transfer.
+    pub pub_keys: Vec<PublicKey>,
+    /// List of `Signatures`s used for the transfer.
+    pub signatures: Vec<Vec<u8>>,
 }
 
 /// Issue `amount` of the currency to the `wallet`.
@@ -117,6 +157,8 @@ pub struct CreateMultiSigWallet {
 pub enum WalletTransactions {
     /// Transfer tx.
     Transfer(Transfer),
+    /// Multisignature Wallet Transfer tx.
+    MultiSigTransfer(MultiSigTransfer),
     /// Issue tx.
     Issue(Issue),
     /// CreateWallet tx.
@@ -173,6 +215,35 @@ impl Transfer {
     }
 }
 
+impl MultiSigTransfer {
+    #[doc(hidden)]
+    pub fn sign(
+        pk: &PublicKey,
+        &from: &PublicKey,
+        &to: &PublicKey,
+        pub_keys: &Vec<PublicKey>,
+        signatures: &Vec<Signature>,
+        amount: u64,
+        seed: u64,
+        sk: &SecretKey,
+    ) -> Signed<RawTransaction> {
+        let serialized_signatures: Vec<Vec<u8>> = signatures.iter()
+            .map(|x| Vec::from(x.as_ref()))
+            .collect();
+        Message::sign_transaction(
+            Self {
+                from,
+                transfer: Transfer { to, amount, seed },
+                pub_keys: pub_keys.clone(),
+                signatures: serialized_signatures
+            },
+            CRYPTOCURRENCY_SERVICE_ID,
+            *pk,
+            sk,
+        )
+    }
+}
+
 impl Transaction for Transfer {
     fn execute(&self, mut context: TransactionContext) -> ExecutionResult {
         let from = &context.author();
@@ -188,9 +259,79 @@ impl Transaction for Transfer {
         }
 
         let sender = schema.wallet(from).ok_or(Error::SenderNotFound)?;
+        if schema.multisignature_wallet_info(from).is_some() {
+            Err(Error::SimpleTransferFromMultiSigWallet)?
+        }
 
         let receiver = schema.wallet(to).ok_or(Error::ReceiverNotFound)?;
 
+        if sender.balance < amount {
+            Err(Error::InsufficientCurrencyAmount)?
+        }
+
+        schema.decrease_wallet_balance(sender, amount, &hash);
+        schema.increase_wallet_balance(receiver, amount, &hash);
+
+        Ok(())
+    }
+}
+
+impl Transaction for MultiSigTransfer {
+    fn execute(&self, mut context: TransactionContext) -> ExecutionResult {
+        use exonum::crypto::{SIGNATURE_LENGTH, verify};
+        use exonum::messages::{ServiceTransaction, BinaryForm};
+        use std::collections::HashSet;
+
+        let from = &self.from;
+        let to = &self.transfer.to;
+
+        if from == to {
+            return Err(ExecutionError::new(ERROR_SENDER_SAME_AS_RECEIVER));
+        }
+
+        // Construct signatures from bytes and remove duplicates
+        let mut signatures: Vec<Signature> = self.signatures.iter()
+            .filter(|b| b.len() == SIGNATURE_LENGTH)
+            .map(|b| {
+                let mut signature_data = [0u8; SIGNATURE_LENGTH];
+                signature_data.copy_from_slice(&b[..]);
+                Signature::new(signature_data)
+            })
+            .collect();
+        signatures.dedup();
+
+        let public_keys = &self.pub_keys;
+        if signatures.len() != public_keys.len() {
+            Err(Error::NumberOfSignaturesAndPublicKeysMismatch)?
+        }
+
+        let hash = context.tx_hash();
+
+        let mut schema = Schema::new(context.fork());
+        let multisig_info = schema.multisignature_wallet_info(from).ok_or(Error::SenderNotFound)?;
+        if signatures.len() < multisig_info.signatures_required as usize {
+            Err(Error::NotEnoughSignatures)?
+        }
+
+        let wallet_pub_keys_set: HashSet<PublicKey> = multisig_info.pub_keys.clone().into_iter().collect();
+        let received_pub_keys_set: HashSet<PublicKey>= public_keys.clone().into_iter().collect();
+        let intersection_len = wallet_pub_keys_set.intersection(&received_pub_keys_set).collect::<HashSet<_>>().len();
+        if intersection_len != public_keys.len() {
+            Err(Error::InvalidOrDuplicatedPartiesData)?
+        }
+
+        let amount = self.transfer.amount;
+        let transfer: ServiceTransaction = self.transfer.clone().into();
+        let transfer_data = transfer.encode().unwrap();
+
+        for (sig, pub_key) in signatures.iter().zip(public_keys.iter()) {
+            if !verify(sig, &transfer_data, pub_key) {
+                Err(Error::InvalidOrDuplicatedPartiesData)?
+            }
+        }
+
+        let sender = schema.wallet(from).ok_or(Error::SenderNotFound)?;
+        let receiver = schema.wallet(to).ok_or(Error::ReceiverNotFound)?;
         if sender.balance < amount {
             Err(Error::InsufficientCurrencyAmount)?
         }
