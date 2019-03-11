@@ -291,12 +291,7 @@ impl Transaction for MultiSigTransfer {
 
         // Construct signatures from bytes and remove duplicates
         let mut signatures: Vec<Signature> = self.signatures.iter()
-            .filter(|b| b.len() == SIGNATURE_LENGTH)
-            .map(|b| {
-                let mut signature_data = [0u8; SIGNATURE_LENGTH];
-                signature_data.copy_from_slice(&b[..]);
-                Signature::new(signature_data)
-            })
+            .filter_map(|b| Signature::from_slice(&b))
             .collect();
         signatures.dedup();
 

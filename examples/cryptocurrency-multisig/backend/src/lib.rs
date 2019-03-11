@@ -38,6 +38,7 @@ pub mod proto;
 pub mod schema;
 pub mod transactions;
 pub mod wallet;
+pub mod helpers;
 
 use exonum::{
     api::ServiceApiBuilder,
@@ -47,8 +48,6 @@ use exonum::{
     messages::RawTransaction,
     storage::Snapshot,
 };
-
-use exonum::crypto::{HashStream, PublicKey, PUBLIC_KEY_LENGTH};
 
 use transactions::WalletTransactions;
 
@@ -98,35 +97,4 @@ impl fabric::ServiceFactory for ServiceFactory {
     fn make_service(&mut self, _: &Context) -> Box<dyn blockchain::Service> {
         Box::new(Service)
     }
-}
-
-/// Create `PublicKey` for multisignature wallet from parties' `PublicKeys`s
-/// by hashing them. In general, the given list of `PublicKey`s should be sorted.
-pub fn create_multisig_wallet_pub_key(pub_keys: &Vec<PublicKey>) -> PublicKey {
-    let hasher = pub_keys.iter()
-        .fold(HashStream::new(), |hs, pk| hs.update(pk.as_ref()));
-    let final_hash = hasher.hash();
-    let mut pub_key_data = [0u8; PUBLIC_KEY_LENGTH];
-    pub_key_data.copy_from_slice(&final_hash[..PUBLIC_KEY_LENGTH]);
-    PublicKey::new(pub_key_data)
-}
-
-#[test]
-fn test_create_multisig_address() {
-    use exonum::crypto::CryptoHash;
-
-    let pub_keys = vec![
-        PublicKey::new([3; PUBLIC_KEY_LENGTH]),
-        PublicKey::new([7; PUBLIC_KEY_LENGTH]),
-        PublicKey::new([9; PUBLIC_KEY_LENGTH]),
-        PublicKey::new([15; PUBLIC_KEY_LENGTH]),
-    ];
-
-    let new_pub_key = create_multisig_wallet_pub_key(&pub_keys);
-    let expected_hash = exonum::crypto::hash(&[
-        155, 39, 151, 123, 24, 26, 74, 31, 84, 189, 196, 245,
-        229, 51, 203, 61, 176, 212, 166, 122, 30, 114, 57,
-        122, 31, 188, 213, 151, 125, 100, 12, 159]);
-
-    assert_eq!(expected_hash, new_pub_key.hash());
 }
