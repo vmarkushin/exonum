@@ -80,9 +80,9 @@ fn test_create_multisig_wallet_2_of_2() {
     assert_eq!(wallet.name, MULTISIGNATURE_WALLET_NAME);
     assert_eq!(wallet.balance, 100);
 
-    let multisig_wallet_data = api.get_multisig_wallet_data(wallet_pub_key).unwrap();
-    assert_eq!(multisig_wallet_data.signatures_required, 2);
-    assert_eq!(multisig_wallet_data.pub_keys.len(), 2);
+    let multisig_wallet_info = api.get_multisig_wallet_info(wallet_pub_key).unwrap();
+    assert_eq!(multisig_wallet_info.quorum, 2);
+    assert_eq!(multisig_wallet_info.pub_keys.len(), 2);
 }
 
 /// Check that the transfer transaction works as intended.
@@ -312,6 +312,67 @@ fn test_multisig_transfer_with_foreign_pub_key() {
     assert_eq!(wallet.balance, 100);
 }
 
+/// Check that the multisig transfer transaction without reached quorum of signatures
+/// does not lead to changes in sender's and receiver's balances.
+#[test]
+fn test_multisig_transfer_without_reached_quorum() {
+    // Create 2 wallets (multisig one and simple one).
+    let (mut testkit, api) = create_testkit();
+    let (tx_multisig,
+        pub_keys, keys,
+        multisig_pk) = api.create_multisig_wallet(
+        MULTISIGNATURE_WALLET_NAME,
+        2, // m (at least 2 signatures need)
+        3); // n (parties number)
+    let (tx_alice, _) = api.create_wallet(ALICE_NAME);
+    testkit.create_block();
+    api.assert_tx_status(tx_multisig.hash(), &json!({ "type": "success" }));
+    api.assert_tx_status(tx_alice.hash(), &json!({ "type": "success" }));
+
+    // Check that the initial Alice's and Bob's balances persisted by the service.
+    let wallet = api.get_wallet(multisig_pk).unwrap();
+    assert_eq!(wallet.balance, 100);
+    let wallet = api.get_wallet(tx_alice.author()).unwrap();
+    assert_eq!(wallet.balance, 100);
+
+    let transfer = Transfer {
+        to: tx_alice.author().clone(),
+        amount: 10,
+        seed: 0
+    };
+    let tx_sender = &pub_keys[0];
+    let tx_sender_key = &keys[0];
+    let transfer_service_tx: ServiceTransaction = transfer.clone().into();
+    let transfer_data = transfer_service_tx.encode().unwrap();
+    let tx_signatures = &vec![sign(&transfer_data, &keys[1])];
+    let tx_pub_keys = vec![pub_keys[1].clone()];
+
+    // Transfer funds by invoking the corresponding API method.
+    let tx = MultiSigTransfer::sign(
+        tx_sender,
+        &multisig_pk,
+        &transfer.to,
+        &tx_pub_keys,
+        tx_signatures,
+        transfer.amount,
+        transfer.seed,
+        tx_sender_key,
+    );
+    api.transfer(&tx);
+    testkit.create_block();
+    api.assert_tx_status(
+        tx.hash(),
+        &json!({ "type": "error", "code": 6, "description": "Number of given signatures is less than required" })
+    );
+
+    // After the transfer transaction is included into a block, we may check new wallet
+    // balances.
+    let wallet = api.get_wallet(multisig_pk).unwrap();
+    assert_eq!(wallet.balance, 100);
+    let wallet = api.get_wallet(tx_alice.author()).unwrap();
+    assert_eq!(wallet.balance, 100);
+}
+
 /// Check that an overcharge does not lead to changes in sender's and receiver's balances.
 #[test]
 fn test_transfer_overcharge() {
@@ -381,28 +442,27 @@ impl CryptocurrencyApi {
     }
 
     /// Generates a multisignature wallet (M-of-N) creation transaction with a random key pairs,
-    /// where M is `at_least` and N is `of_count`. Then sends it over HTTP,
-    /// and checks the synchronous result (i.e., the hash of the transaction returned
-    /// within the response).
+    /// where M is `quorum` (the minimum number of parties' signatures required to use the wallet)
+    /// and N is `of_count`. Then sends it over HTTP, and checks the synchronous result
+    /// (i.e., the hash of the transaction returned within the response).
     /// Note that the transaction is not immediately added to the blockchain, but rather is put
     /// to the pool of unconfirmed transactions.
-    fn create_multisig_wallet(&self, name: &str, at_least: u32, of_count: u32) -> (Signed<RawTransaction>,
+    fn create_multisig_wallet(&self, name: &str, quorum: u32, of_count: u32) -> (Signed<RawTransaction>,
                                                                                    Vec<PublicKey>,
                                                                                    Vec<SecretKey>,
                                                                                    PublicKey) {
-        use cryptocurrency::create_multisig_wallet_pub_key;
-
+        use cryptocurrency::helpers::create_multisig_wallet_pub_key;
+        // Generate key pairs and sort them
         let mut keypairs: Vec<(PublicKey, SecretKey)> = (0..of_count).map(|_| crypto::gen_keypair()).collect();
         keypairs.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let keypairs_cloned = keypairs.clone();
-        let pubkeys: Vec<PublicKey> = keypairs_cloned.into_iter().map(|(p, _)| p).collect();
+        let pubkeys: Vec<PublicKey> = keypairs.iter().cloned().map(|(p, _)| p).collect();
         let keys: Vec<SecretKey> = keypairs.into_iter().map(|(_, s)| s).collect();
 
         let wallet_pub_key = create_multisig_wallet_pub_key(&pubkeys);
         let (pubkey, key) = (pubkeys[0], keys[0].clone());
 
         // Create a pre-signed transaction
-        let tx = CreateMultiSigWallet::sign(name, &pubkeys, at_least, &pubkey, &key);
+        let tx = CreateMultiSigWallet::sign(name, &pubkeys, quorum, &pubkey, &key);
 
         let data = messages::to_hex_string(&tx);
         let tx_info: TransactionResponse = self
@@ -432,7 +492,7 @@ impl CryptocurrencyApi {
         wallet
     }
 
-    fn get_multisig_wallet_data(&self, pub_key: PublicKey) -> Option<MultiSigWalletInfo> {
+    fn get_multisig_wallet_info(&self, pub_key: PublicKey) -> Option<MultiSigWalletInfo> {
         let wallet_info = self
             .inner
             .public(ApiKind::Service("cryptocurrency"))

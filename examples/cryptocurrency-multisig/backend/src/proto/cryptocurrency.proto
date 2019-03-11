@@ -28,7 +28,7 @@ message Transfer {
   uint64 seed = 3;
 }
 
-/// Transfer `amount` of the currency from one multisignature wallet wallet to another.
+/// Transfer `amount` of the currency from one multisignature wallet to another.
 /// Require at least `m` signatures of `n` parties of the given multisignature wallet
 /// in order to make transfer.
 message MultiSigTransfer {
@@ -60,8 +60,8 @@ message CreateWallet {
 message CreateMultiSigWallet {
   // Name of the new wallet.
   string name = 1;
-  // Number of signatures required to use the wallet.
-  uint32 signatures_required = 2;
+  // Minimum number of signatures required to use the wallet.
+  uint32 quorum = 2;
   // Parties' `PublicKey`s, that can use the wallet.
   repeated exonum.PublicKey public_keys = 3;
 }
@@ -84,6 +84,6 @@ message Wallet {
 message MultiSigWalletInfo {
   // Parties' `PublicKey`s of the multisignature wallet.
   repeated exonum.PublicKey pub_keys = 1;
-  // Number of signatures required to use the wallet.
-  uint32 signatures_required = 2;
+  // Minimum number of signatures required to use the wallet.
+  uint32 quorum = 2;
 }

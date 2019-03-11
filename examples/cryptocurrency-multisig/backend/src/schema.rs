@@ -50,7 +50,7 @@ where
     }
 
     /// Returns `MapIndex` with multisignature wallets info.
-    pub fn multisignature_wallets_info(&self) -> MapIndex<&T, PublicKey, MultiSigWalletInfo> {
+    pub fn multisig_wallets_info(&self) -> MapIndex<&T, PublicKey, MultiSigWalletInfo> {
         MapIndex::new("cryptocurrency.multisignature_wallets_info", &self.view)
     }
 
@@ -65,8 +65,8 @@ where
     }
 
     /// Returns multisignature wallet info for the given public key.
-    pub fn multisignature_wallet_info(&self, pub_key: &PublicKey) -> Option<MultiSigWalletInfo> {
-        self.multisignature_wallets_info().get(pub_key)
+    pub fn multisig_wallet_info(&self, pub_key: &PublicKey) -> Option<MultiSigWalletInfo> {
+        self.multisig_wallets_info().get(pub_key)
     }
 
     /// Returns the state hash of cryptocurrency service.
@@ -83,7 +83,7 @@ impl<'a> Schema<&'a mut Fork> {
     }
 
     /// Returns mutable `MapIndex` with multisignature wallets info.
-    pub fn multisignature_wallets_data_mut(&mut self) -> MapIndex<&mut Fork, PublicKey, MultiSigWalletInfo> {
+    pub fn multisig_wallets_data_mut(&mut self) -> MapIndex<&mut Fork, PublicKey, MultiSigWalletInfo> {
         MapIndex::new("cryptocurrency.multisignature_wallets_info", &mut self.view)
     }
 
@@ -135,21 +135,15 @@ impl<'a> Schema<&'a mut Fork> {
     }
 
     /// Create new multisignature wallet and append first record to its history.
-    pub fn create_multisignature_wallet(&mut self,
-                                        wallet_key: &PublicKey,
-                                        name: &str,
-                                        signatures_required: u32,
-                                        pub_keys: &Vec<PublicKey>,
-                                        transaction: &Hash) {
-        let wallet = {
-            let mut history = self.wallet_history_mut(wallet_key);
-            history.push(*transaction);
-            let history_hash = history.merkle_root();
-            Wallet::new(wallet_key, name, INITIAL_BALANCE, history.len(), &history_hash)
-        };
-        self.wallets_mut().put(wallet_key, wallet);
+    pub fn create_multisig_wallet(&mut self,
+                                  name: &str,
+                                  quorum: u32,
+                                  pub_keys: &Vec<PublicKey>,
+                                  transaction: &Hash) {
+        let wallet_key = &crate::helpers::create_multisig_wallet_pub_key(&pub_keys);
+        self.create_wallet(wallet_key, name, transaction);
 
-        let multisig_data = MultiSigWalletInfo::new(pub_keys.clone(), signatures_required);
-        self.multisignature_wallets_data_mut().put(&wallet_key, multisig_data);
+        let multisig_data = MultiSigWalletInfo::new(pub_keys.clone(), quorum);
+        self.multisig_wallets_data_mut().put(wallet_key, multisig_data);
     }
 }

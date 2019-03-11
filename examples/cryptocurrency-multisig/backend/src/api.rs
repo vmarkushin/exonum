@@ -111,7 +111,7 @@ impl PublicApi {
             }
         });
 
-        let wallet_multisignature_data = currency_schema.multisignature_wallet_info(&query.pub_key);
+        let wallet_multisignature_data = currency_schema.multisig_wallet_info(&query.pub_key);
 
         Ok(WalletInfo {
             block_proof,

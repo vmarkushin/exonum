@@ -69,19 +69,19 @@ impl Wallet {
 pub struct MultiSigWalletInfo {
     /// `PublicKey`s of the multisignature wallet.
     pub pub_keys: Vec<PublicKey>,
-    /// Number of signatures required to use the wallet.
-    pub signatures_required: u32,
+    /// Minimum number of signatures required to use the wallet.
+    pub quorum: u32,
 }
 
 impl MultiSigWalletInfo {
     /// Create new MultiSigWalletInfo.
     pub fn new(
         pub_keys: Vec<PublicKey>,
-        signatures_required: u32,
+        quorum: u32,
     ) -> Self {
         Self {
             pub_keys,
-            signatures_required,
+            quorum,
         }
     }
 }

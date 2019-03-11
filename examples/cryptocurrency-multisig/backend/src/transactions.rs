@@ -76,11 +76,17 @@ pub enum Error {
     #[fail(display = "Number of given signatures is less than required")]
     NotEnoughSignatures = 6,
 
-    /// Can't do simple transfer from multisig wallet. Use MultiSigTransfer instead.
+    /// Attempt to do simple transfer from multisig wallet. Use MultiSigTransfer instead.
     ///
     /// Can be emitted by `Transfer`.
-    #[fail(display = "Can't do simple transfer from multisig wallet. Use MultiSigTransfer instead")]
+    #[fail(display = "Attempt to do simple transfer from multisig wallet. Use MultiSigTransfer instead")]
     SimpleTransferFromMultiSigWallet = 7,
+
+    /// Quorum is greater than parties number.
+    ///
+    /// Can be emitted by `CreateMultiSigWallet`.
+    #[fail(display = "Quorum is greater than parties number")]
+    QuorumIsGreaterThanPartiesNumber = 8,
 }
 
 impl From<Error> for ExecutionError {
@@ -104,7 +110,7 @@ pub struct Transfer {
     pub seed: u64,
 }
 
-/// Transfer `amount` of the currency from one multisignature wallet wallet to another.
+/// Transfer `amount` of the currency from one multisignature wallet to another.
 /// Require at least `m` signatures of `n` parties of the given multisignature wallet
 /// in order to make transfer.
 #[derive(Clone, Debug, ProtobufConvert)]
@@ -140,14 +146,14 @@ pub struct CreateWallet {
     pub name: String,
 }
 
-/// Create multisignature wallet with the given `name`, `signatures_required`, `public_keys`.
+/// Create multisignature wallet with the given `name`, `quorum`, `public_keys`.
 #[derive(Serialize, Deserialize, Clone, Debug, ProtobufConvert)]
 #[exonum(pb = "proto::CreateMultiSigWallet")]
 pub struct CreateMultiSigWallet {
     /// Name of the new wallet.
     pub name: String,
-    /// Number of signatures required to use the wallet.
-    pub signatures_required: u32,
+    /// Minimum number of signatures required to use the wallet.
+    pub quorum: u32,
     /// Parties' `PublicKey`s, that can use the wallet.
     pub public_keys: Vec<PublicKey>,
 }
@@ -157,7 +163,7 @@ pub struct CreateMultiSigWallet {
 pub enum WalletTransactions {
     /// Transfer tx.
     Transfer(Transfer),
-    /// Multisignature Wallet Transfer tx.
+    /// MultiSigTransfer tx.
     MultiSigTransfer(MultiSigTransfer),
     /// Issue tx.
     Issue(Issue),
@@ -183,11 +189,11 @@ impl CreateWallet {
 
 impl CreateMultiSigWallet {
     #[doc(hidden)]
-    pub fn sign(name: &str, public_keys: &Vec<PublicKey>, signatures_required: u32, pk: &PublicKey, sk: &SecretKey) -> Signed<RawTransaction> {
+    pub fn sign(name: &str, public_keys: &Vec<PublicKey>, quorum: u32, pk: &PublicKey, sk: &SecretKey) -> Signed<RawTransaction> {
         Message::sign_transaction(
             Self {
                 name: name.to_owned(),
-                signatures_required,
+                quorum,
                 public_keys: public_keys.clone(),
             },
             CRYPTOCURRENCY_SERVICE_ID,
@@ -259,7 +265,7 @@ impl Transaction for Transfer {
         }
 
         let sender = schema.wallet(from).ok_or(Error::SenderNotFound)?;
-        if schema.multisignature_wallet_info(from).is_some() {
+        if schema.multisig_wallet_info(from).is_some() {
             Err(Error::SimpleTransferFromMultiSigWallet)?
         }
 
@@ -278,7 +284,7 @@ impl Transaction for Transfer {
 
 impl Transaction for MultiSigTransfer {
     fn execute(&self, mut context: TransactionContext) -> ExecutionResult {
-        use exonum::crypto::{SIGNATURE_LENGTH, verify};
+        use exonum::crypto::verify;
         use exonum::messages::{ServiceTransaction, BinaryForm};
         use std::collections::HashSet;
 
@@ -302,15 +308,17 @@ impl Transaction for MultiSigTransfer {
 
         let hash = context.tx_hash();
 
+        // Check minimum required number of signatures
         let mut schema = Schema::new(context.fork());
-        let multisig_info = schema.multisignature_wallet_info(from).ok_or(Error::SenderNotFound)?;
-        if signatures.len() < multisig_info.signatures_required as usize {
+        let multisig_info = schema.multisig_wallet_info(from).ok_or(Error::SenderNotFound)?;
+        if signatures.len() < multisig_info.quorum as usize {
             Err(Error::NotEnoughSignatures)?
         }
 
+        // Check all the given keys are belong to the given wallet
         let wallet_pub_keys_set: HashSet<PublicKey> = multisig_info.pub_keys.clone().into_iter().collect();
         let received_pub_keys_set: HashSet<PublicKey>= public_keys.clone().into_iter().collect();
-        let intersection_len = wallet_pub_keys_set.intersection(&received_pub_keys_set).collect::<HashSet<_>>().len();
+        let intersection_len = wallet_pub_keys_set.intersection(&received_pub_keys_set).collect::<Vec<_>>().len();
         if intersection_len != public_keys.len() {
             Err(Error::InvalidOrDuplicatedPartiesData)?
         }
@@ -374,19 +382,22 @@ impl Transaction for CreateWallet {
 
 impl Transaction for CreateMultiSigWallet {
     fn execute(&self, mut context: TransactionContext) -> ExecutionResult {
-        use crate::create_multisig_wallet_pub_key;
-//        let pub_key = &context.author();
+        use crate::helpers::create_multisig_wallet_pub_key;
+        let quorum = self.quorum;
+
+        if quorum as usize > self.public_keys.len() {
+            Err(Error::QuorumIsGreaterThanPartiesNumber)?
+        }
+
         let pub_keys = &self.public_keys;
         let pub_key = &create_multisig_wallet_pub_key(pub_keys);
-
         let hash = context.tx_hash();
 
         let mut schema = Schema::new(context.fork());
 
-        if schema.wallet(pub_key).is_none() && schema.multisignature_wallet_info(pub_key).is_none() {
+        if schema.wallet(pub_key).is_none() && schema.multisig_wallet_info(pub_key).is_none() {
             let name = &self.name;
-            let signatures_required = self.signatures_required;
-            schema.create_multisignature_wallet(pub_key, name, signatures_required, pub_keys, &hash);
+            schema.create_multisig_wallet(name, quorum, pub_keys, &hash);
             Ok(())
         } else {
             Err(Error::WalletAlreadyExists)?
