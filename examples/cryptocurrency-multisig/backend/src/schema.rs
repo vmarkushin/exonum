@@ -21,7 +21,6 @@ use exonum::{
 
 use wallet::{Wallet, MultiSigWalletInfo};
 use INITIAL_BALANCE;
-use exonum::storage::MapIndex;
 
 /// Database schema for the cryptocurrency.
 #[derive(Debug)]
@@ -50,8 +49,8 @@ where
     }
 
     /// Returns `MapIndex` with multisignature wallets info.
-    pub fn multisig_wallets_info(&self) -> MapIndex<&T, PublicKey, MultiSigWalletInfo> {
-        MapIndex::new("cryptocurrency.multisignature_wallets_info", &self.view)
+    pub fn multisig_wallets_info(&self) -> ProofMapIndex<&T, PublicKey, MultiSigWalletInfo> {
+        ProofMapIndex::new("cryptocurrency.multisignature_wallets_info", &self.view)
     }
 
     /// Returns history of the wallet with the given public key.
@@ -83,8 +82,8 @@ impl<'a> Schema<&'a mut Fork> {
     }
 
     /// Returns mutable `MapIndex` with multisignature wallets info.
-    pub fn multisig_wallets_data_mut(&mut self) -> MapIndex<&mut Fork, PublicKey, MultiSigWalletInfo> {
-        MapIndex::new("cryptocurrency.multisignature_wallets_info", &mut self.view)
+    pub fn multisig_wallets_data_mut(&mut self) -> ProofMapIndex<&mut Fork, PublicKey, MultiSigWalletInfo> {
+        ProofMapIndex::new("cryptocurrency.multisignature_wallets_info", &mut self.view)
     }
 
     /// Returns history for the wallet by the given public key.

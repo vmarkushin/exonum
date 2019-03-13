@@ -27,7 +27,7 @@ extern crate serde_json;
 use exonum::{
     api::node::public::explorer::{TransactionQuery, TransactionResponse},
     crypto::{self, Hash, PublicKey, SecretKey, Signature, sign},
-    messages::{self, RawTransaction, Signed},
+    messages::{self, RawTransaction, Signed, ServiceTransaction, BinaryForm},
 };
 use exonum_testkit::{ApiKind, TestKit, TestKitApi, TestKitBuilder};
 
@@ -41,7 +41,6 @@ use cryptocurrency::{
 
 // Imports shared test constants.
 use constants::{ALICE_NAME, BOB_NAME, MULTISIGNATURE_WALLET_NAME};
-use exonum::messages::{ServiceTransaction, BinaryForm};
 
 mod constants;
 
